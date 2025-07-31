@@ -88,16 +88,19 @@ func (c *Client) CollectActivity(username, repo string, startDate, endDate time.
 func (c *Client) getCommits(username, repo string, startDate, endDate time.Time) ([]types.GitHubActivity, error) {
 	var activities []types.GitHubActivity
 
-	// Search for commits by author
-	query := fmt.Sprintf("author:%s committer-date:%s..%s",
+	// Base query for commits search
+	baseQuery := fmt.Sprintf("author:%s committer-date:%s..%s",
 		username, startDate.Format("2006-01-02"), endDate.Format("2006-01-02"))
 
 	if repo != "" {
-		query += fmt.Sprintf(" repo:%s", repo)
+		baseQuery += fmt.Sprintf(" repo:%s", repo)
 	}
 
+	escapedQuery := strings.ReplaceAll(baseQuery, " ", "%20")
+
 	var searchResult struct {
-		Items []struct {
+		TotalCount int `json:"total_count"`
+		Items      []struct {
 			SHA        string `json:"sha"`
 			Repository struct {
 				FullName string `json:"full_name"`
@@ -112,24 +115,48 @@ func (c *Client) getCommits(username, repo string, startDate, endDate time.Time)
 		} `json:"items"`
 	}
 
-	// The commits search API often fails or is slow due to GitHub's rate limiting
-	// If it fails, we'll return an error so the caller can handle it gracefully
-	escapedQuery := strings.ReplaceAll(query, " ", "%20")
-	err := c.client.Get(fmt.Sprintf("search/commits?q=%s&sort=committer-date&order=desc", escapedQuery), &searchResult)
-	if err != nil {
-		// Return error so caller knows commits search failed
-		return activities, fmt.Errorf("commits search failed (this is common due to GitHub API restrictions): %w", err)
-	}
+	// Pagination to get all commits
+	page := 1
+	perPage := 100
 
-	for _, item := range searchResult.Items {
-		activities = append(activities, types.GitHubActivity{
-			Type:        "commit",
-			Repository:  item.Repository.FullName,
-			Title:       strings.Split(item.Commit.Message, "\n")[0],
-			Description: item.Commit.Message,
-			URL:         item.HTMLURL,
-			CreatedAt:   item.Commit.Author.Date,
-		})
+	for {
+		// Build query with pagination
+
+		err := c.client.Get(fmt.Sprintf("search/commits?q=%s&per_page=%d&page=%d&sort=committer-date&order=desc", escapedQuery, perPage, page), &searchResult)
+		if err != nil {
+			// Return error so caller knows commits search failed
+			return activities, fmt.Errorf("commits search failed (this is common due to GitHub API restrictions): %w", err)
+		}
+
+		// If no items returned, we've reached the end
+		if len(searchResult.Items) == 0 {
+			break
+		}
+
+		// Add items from current page
+		for _, item := range searchResult.Items {
+			activities = append(activities, types.GitHubActivity{
+				Type:        "commit",
+				Repository:  item.Repository.FullName,
+				Title:       strings.Split(item.Commit.Message, "\n")[0],
+				Description: item.Commit.Message,
+				URL:         item.HTMLURL,
+				CreatedAt:   item.Commit.Author.Date,
+			})
+		}
+
+		// If we got less than perPage items, we've reached the end
+		if len(searchResult.Items) < perPage {
+			break
+		}
+
+		// Move to next page
+		page++
+
+		// Safety check to prevent infinite loops (GitHub API has limits)
+		if page > 10 { // Max 1000 commits (100 * 10 pages)
+			break
+		}
 	}
 
 	return activities, nil
@@ -138,13 +165,15 @@ func (c *Client) getCommits(username, repo string, startDate, endDate time.Time)
 func (c *Client) getPullRequests(username, repo string, startDate, endDate time.Time) ([]types.GitHubActivity, error) {
 	var activities []types.GitHubActivity
 
-	// Search for pull requests
-	query := fmt.Sprintf("author:%s created:%s..%s",
+	// Base query for pull requests search
+	baseQuery := fmt.Sprintf("author:%s created:%s..%s",
 		username, startDate.Format("2006-01-02"), endDate.Format("2006-01-02"))
 
 	if repo != "" {
-		query += fmt.Sprintf(" repo:%s", repo)
+		baseQuery += fmt.Sprintf(" repo:%s", repo)
 	}
+
+	escapedQuery := strings.ReplaceAll(baseQuery, " ", "%20")
 
 	var searchResult struct {
 		Items []struct {
@@ -160,21 +189,45 @@ func (c *Client) getPullRequests(username, repo string, startDate, endDate time.
 		} `json:"items"`
 	}
 
-	escapedQuery := strings.ReplaceAll(query, " ", "%20")
-	err := c.client.Get(fmt.Sprintf("search/issues?q=%s+type:pr&sort=created&order=desc", escapedQuery), &searchResult)
-	if err != nil {
-		return activities, nil
-	}
+	// Pagination to get all pull requests
+	page := 1
+	perPage := 100
 
-	for _, item := range searchResult.Items {
-		activities = append(activities, types.GitHubActivity{
-			Type:        "pull_request",
-			Repository:  item.Repository.FullName,
-			Title:       fmt.Sprintf("PR #%d: %s", item.Number, item.Title),
-			Description: item.Body,
-			URL:         item.HTMLURL,
-			CreatedAt:   item.CreatedAt,
-		})
+	for {
+		err := c.client.Get(fmt.Sprintf("search/issues?q=%s+type:pr&per_page=%d&page=%d&sort=created&order=desc", escapedQuery, perPage, page), &searchResult)
+		if err != nil {
+			return activities, err
+		}
+
+		// If no items returned, we've reached the end
+		if len(searchResult.Items) == 0 {
+			break
+		}
+
+		// Add items from current page
+		for _, item := range searchResult.Items {
+			activities = append(activities, types.GitHubActivity{
+				Type:        "pull_request",
+				Repository:  item.Repository.FullName,
+				Title:       fmt.Sprintf("PR #%d: %s", item.Number, item.Title),
+				Description: item.Body,
+				URL:         item.HTMLURL,
+				CreatedAt:   item.CreatedAt,
+			})
+		}
+
+		// If we got less than perPage items, we've reached the end
+		if len(searchResult.Items) < perPage {
+			break
+		}
+
+		// Move to next page
+		page++
+
+		// Safety check to prevent infinite loops
+		if page > 10 { // Max 1000 pull requests (100 * 10 pages)
+			break
+		}
 	}
 
 	return activities, nil
@@ -183,13 +236,15 @@ func (c *Client) getPullRequests(username, repo string, startDate, endDate time.
 func (c *Client) getIssues(username, repo string, startDate, endDate time.Time) ([]types.GitHubActivity, error) {
 	var activities []types.GitHubActivity
 
-	// Search for issues created by user
-	query := fmt.Sprintf("author:%s created:%s..%s",
+	// Base query for issues search
+	baseQuery := fmt.Sprintf("author:%s created:%s..%s",
 		username, startDate.Format("2006-01-02"), endDate.Format("2006-01-02"))
 
 	if repo != "" {
-		query += fmt.Sprintf(" repo:%s", repo)
+		baseQuery += fmt.Sprintf(" repo:%s", repo)
 	}
+
+	escapedQuery := strings.ReplaceAll(baseQuery, " ", "%20")
 
 	var searchResult struct {
 		Items []struct {
@@ -205,21 +260,45 @@ func (c *Client) getIssues(username, repo string, startDate, endDate time.Time) 
 		} `json:"items"`
 	}
 
-	escapedQuery := strings.ReplaceAll(query, " ", "%20")
-	err := c.client.Get(fmt.Sprintf("search/issues?q=%s+type:issue&sort=created&order=desc", escapedQuery), &searchResult)
-	if err != nil {
-		return activities, nil
-	}
+	// Pagination to get all issues
+	page := 1
+	perPage := 100
 
-	for _, item := range searchResult.Items {
-		activities = append(activities, types.GitHubActivity{
-			Type:        "issue",
-			Repository:  item.Repository.FullName,
-			Title:       fmt.Sprintf("Issue #%d: %s", item.Number, item.Title),
-			Description: item.Body,
-			URL:         item.HTMLURL,
-			CreatedAt:   item.CreatedAt,
-		})
+	for {
+		err := c.client.Get(fmt.Sprintf("search/issues?q=%s+type:issue&per_page=%d&page=%d&sort=created&order=desc", escapedQuery, perPage, page), &searchResult)
+		if err != nil {
+			return activities, err
+		}
+
+		// If no items returned, we've reached the end
+		if len(searchResult.Items) == 0 {
+			break
+		}
+
+		// Add items from current page
+		for _, item := range searchResult.Items {
+			activities = append(activities, types.GitHubActivity{
+				Type:        "issue",
+				Repository:  item.Repository.FullName,
+				Title:       fmt.Sprintf("Issue #%d: %s", item.Number, item.Title),
+				Description: item.Body,
+				URL:         item.HTMLURL,
+				CreatedAt:   item.CreatedAt,
+			})
+		}
+
+		// If we got less than perPage items, we've reached the end
+		if len(searchResult.Items) < perPage {
+			break
+		}
+
+		// Move to next page
+		page++
+
+		// Safety check to prevent infinite loops
+		if page > 10 { // Max 1000 issues (100 * 10 pages)
+			break
+		}
 	}
 
 	return activities, nil
@@ -228,9 +307,11 @@ func (c *Client) getIssues(username, repo string, startDate, endDate time.Time) 
 func (c *Client) getReviews(username string, startDate, endDate time.Time) ([]types.GitHubActivity, error) {
 	var activities []types.GitHubActivity
 
-	// Search for pull requests reviewed by user
-	query := fmt.Sprintf("reviewed-by:%s created:%s..%s",
+	// Base query for pull requests reviewed by user
+	baseQuery := fmt.Sprintf("reviewed-by:%s created:%s..%s",
 		username, startDate.Format("2006-01-02"), endDate.Format("2006-01-02"))
+
+	escapedQuery := strings.ReplaceAll(baseQuery, " ", "%20")
 
 	var searchResult struct {
 		Items []struct {
@@ -244,21 +325,45 @@ func (c *Client) getReviews(username string, startDate, endDate time.Time) ([]ty
 		} `json:"items"`
 	}
 
-	escapedQuery := strings.ReplaceAll(query, " ", "%20")
-	err := c.client.Get(fmt.Sprintf("search/issues?q=%s+type:pr&sort=created&order=desc", escapedQuery), &searchResult)
-	if err != nil {
-		return activities, nil
-	}
+	// Pagination to get all reviews
+	page := 1
+	perPage := 100
 
-	for _, item := range searchResult.Items {
-		activities = append(activities, types.GitHubActivity{
-			Type:        "review",
-			Repository:  item.Repository.FullName,
-			Title:       fmt.Sprintf("Reviewed PR #%d: %s", item.Number, item.Title),
-			Description: fmt.Sprintf("Reviewed pull request: %s", item.Title),
-			URL:         item.HTMLURL,
-			CreatedAt:   item.CreatedAt,
-		})
+	for {
+		err := c.client.Get(fmt.Sprintf("search/issues?q=%s+type:pr&per_page=%d&page=%d&sort=created&order=desc", escapedQuery, perPage, page), &searchResult)
+		if err != nil {
+			return activities, err
+		}
+
+		// If no items returned, we've reached the end
+		if len(searchResult.Items) == 0 {
+			break
+		}
+
+		// Add items from current page
+		for _, item := range searchResult.Items {
+			activities = append(activities, types.GitHubActivity{
+				Type:        "review",
+				Repository:  item.Repository.FullName,
+				Title:       fmt.Sprintf("Reviewed PR #%d: %s", item.Number, item.Title),
+				Description: fmt.Sprintf("Reviewed pull request: %s", item.Title),
+				URL:         item.HTMLURL,
+				CreatedAt:   item.CreatedAt,
+			})
+		}
+
+		// If we got less than perPage items, we've reached the end
+		if len(searchResult.Items) < perPage {
+			break
+		}
+
+		// Move to next page
+		page++
+
+		// Safety check to prevent infinite loops
+		if page > 10 { // Max 1000 reviews (100 * 10 pages)
+			break
+		}
 	}
 
 	return activities, nil
