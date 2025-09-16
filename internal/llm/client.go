@@ -61,6 +61,25 @@ type Client struct {
 	token string
 }
 
+// Simple mapping from model name (lowercase) to a safe default temperature
+// to use when the prompt configuration leaves temperature at 0.
+var modelTemperatureMap = map[string]float64{
+	"openai/gpt-5-mini": 1.0,
+	"openai/gpt-5": 1.0,
+	// Add other models here as needed
+	
+}
+
+// getMappedTemperature returns a mapped temperature for the model (if any).
+// Matching is case-insensitive.
+func getMappedTemperature(model string) (float64, bool) {
+	if model == "" {
+		return 0, false
+	}
+	v, ok := modelTemperatureMap[strings.ToLower(model)]
+	return v, ok
+}
+
 func NewClient() (*Client, error) {
 	fmt.Print("  Checking GitHub token... ")
 
@@ -117,10 +136,18 @@ func (c *Client) GenerateStandupReport(activities []types.GitHubActivity, model 
 		}
 	}
 
+	// Temperature precedence:
+	// 1. If the model map contains a value for the selected model, use it.
+	// 2. Otherwise use the prompt-configured temperature.
+	effectiveTemperature := promptConfig.ModelParameters.Temperature
+	if mapped, ok := getMappedTemperature(selectedModel); ok {
+		effectiveTemperature = mapped
+	}
+
 	request := Request{
 		Messages:    messages,
 		Model:       selectedModel,
-		Temperature: promptConfig.ModelParameters.Temperature,
+		Temperature: effectiveTemperature,
 		TopP:        promptConfig.ModelParameters.TopP,
 		Stream:      false,
 	}
