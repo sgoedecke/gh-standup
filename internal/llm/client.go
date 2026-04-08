@@ -104,7 +104,7 @@ func loadPromptConfig() (*PromptConfig, error) {
 	return &config, nil
 }
 
-func (c *Client) GenerateStandupReport(activities []types.GitHubActivity, model string) (string, error) {
+func (c *Client) GenerateStandupReport(activities []types.GitHubActivity, model string, language string) (string, error) {
 	fmt.Print("  Formatting activity data for AI... ")
 	activitySummary := c.formatActivitiesForLLM(activities)
 	fmt.Println("Done")
@@ -127,8 +127,9 @@ func (c *Client) GenerateStandupReport(activities []types.GitHubActivity, model 
 	messages := make([]Message, len(promptConfig.Messages))
 	for i, msg := range promptConfig.Messages {
 		content := msg.Content
-		// Replace the {{activities}} template variable
+		// Replace template variables
 		content = strings.ReplaceAll(content, "{{activities}}", activitySummary)
+		content = strings.ReplaceAll(content, "{{language}}", language)
 
 		messages[i] = Message{
 			Role:    msg.Role,

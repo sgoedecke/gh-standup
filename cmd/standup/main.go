@@ -22,10 +22,11 @@ var rootCmd = &cobra.Command{
 }
 
 var (
-	flagDays  int
-	flagModel string
-	flagRepo  string
-	flagUser  string
+	flagDays     int
+	flagModel    string
+	flagRepo     string
+	flagUser     string
+	flagLanguage string
 )
 
 func init() {
@@ -33,6 +34,7 @@ func init() {
 	rootCmd.Flags().StringVarP(&flagModel, "model", "m", "openai/gpt-4o", "GitHub Models model to use")
 	rootCmd.Flags().StringVarP(&flagRepo, "repo", "r", "", "Repository to generate standup for (owner/repo)")
 	rootCmd.Flags().StringVarP(&flagUser, "user", "u", "", "User to generate standup for (defaults to authenticated user)")
+	rootCmd.Flags().StringVarP(&flagLanguage, "language", "l", "English", "Language for the standup report (e.g., Korean, Japanese, Spanish)")
 }
 
 func main() {
@@ -88,7 +90,7 @@ func runStandup(cmd *cobra.Command, args []string) error {
 
 	// Generate standup report using GitHub Models
 	fmt.Printf("Generating standup report using %s...\n", flagModel)
-	report, err := llmClient.GenerateStandupReport(activities, flagModel)
+	report, err := llmClient.GenerateStandupReport(activities, flagModel, flagLanguage)
 	if err != nil {
 		return fmt.Errorf("failed to generate standup report: %w", err)
 	}

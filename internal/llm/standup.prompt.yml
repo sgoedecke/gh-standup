@@ -41,6 +41,8 @@ messages:
 
       Format the output as a clean, readable report without any markdown
       headers.
+
+      Write the entire report in {{language}}.
   - role: user
     content: |
       Based on the following GitHub activity, generate a standup report:
