@@ -49,6 +49,9 @@ gh standup --repo owner/repo
 
 # Use a different AI model
 gh standup --model xai/grok-3-mini
+
+# Choose your language (default: English)
+gh standup --language english
 ```
 
 ## Contributing
