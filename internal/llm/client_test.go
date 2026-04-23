@@ -63,3 +63,82 @@ func TestFormatActivitiesForLLMEmpty(t *testing.T) {
 		t.Errorf("Expected %q, got %q", expected, result)
 	}
 }
+
+func TestParseProvider(t *testing.T) {
+	t.Run("default provider", func(t *testing.T) {
+		provider, err := ParseProvider("")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if provider != ProviderGitHubModels {
+			t.Fatalf("expected %q, got %q", ProviderGitHubModels, provider)
+		}
+	})
+
+	t.Run("copilot provider", func(t *testing.T) {
+		provider, err := ParseProvider("copilot")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if provider != ProviderCopilot {
+			t.Fatalf("expected %q, got %q", ProviderCopilot, provider)
+		}
+	})
+
+	t.Run("invalid provider", func(t *testing.T) {
+		if _, err := ParseProvider("invalid"); err == nil {
+			t.Fatal("expected an error for an invalid provider")
+		}
+	})
+}
+
+func TestResolveModel(t *testing.T) {
+	t.Run("github models default", func(t *testing.T) {
+		client := &Client{provider: ProviderGitHubModels}
+		model := client.resolveModel("", "openai/gpt-4o")
+		if model != "openai/gpt-4o" {
+			t.Fatalf("expected prompt default model, got %q", model)
+		}
+	})
+
+	t.Run("copilot default", func(t *testing.T) {
+		client := &Client{provider: ProviderCopilot}
+		model := client.resolveModel("", "openai/gpt-4o")
+		if model != defaultCopilotModel {
+			t.Fatalf("expected %q, got %q", defaultCopilotModel, model)
+		}
+	})
+
+	t.Run("explicit model wins", func(t *testing.T) {
+		client := &Client{provider: ProviderCopilot}
+		model := client.resolveModel("claude-sonnet-4.5", "openai/gpt-4o")
+		if model != "claude-sonnet-4.5" {
+			t.Fatalf("expected explicit model, got %q", model)
+		}
+	})
+}
+
+func TestBuildCopilotPrompt(t *testing.T) {
+	messages := []Message{
+		{Role: "system", Content: "Follow the standup format."},
+		{Role: "user", Content: "Summarize this activity."},
+		{Role: "assistant", Content: "Previous answer context."},
+	}
+
+	systemMessage, prompt, err := buildCopilotPrompt(messages)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if systemMessage != "Follow the standup format." {
+		t.Fatalf("unexpected system message: %q", systemMessage)
+	}
+
+	if !strings.Contains(prompt, "Summarize this activity.") {
+		t.Fatalf("expected user prompt content, got %q", prompt)
+	}
+
+	if !strings.Contains(prompt, "ASSISTANT:\nPrevious answer context.") {
+		t.Fatalf("expected non-user context to be preserved, got %q", prompt)
+	}
+}
