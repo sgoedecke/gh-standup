@@ -1,6 +1,6 @@
 # gh-standup
 
-A GitHub CLI extension that generates AI-powered standup reports using GitHub activity data. It uses free [GitHub Models](https://docs.github.com/en/github-models) for inference, so you don't need to do any token setup - your existing GitHub CLI token will do fine!
+A GitHub CLI extension that generates AI-powered standup reports using GitHub activity data. It uses [GitHub Models](https://docs.github.com/en/github-models) for inference by default, and can also use GitHub Copilot as an alternative backend.
 
 ## Installation
 
@@ -24,6 +24,7 @@ gh auth refresh -h github.com -s read:org
 ### Prerequisites
 
 - [GitHub CLI](https://cli.github.com/) installed and authenticated
+- Optional for `--provider copilot`: [GitHub Copilot CLI](https://docs.github.com/en/copilot/how-tos/set-up/install-copilot-cli) installed and authenticated
 
 ## Usage
 
@@ -49,6 +50,12 @@ gh standup --repo owner/repo
 
 # Use a different AI model
 gh standup --model xai/grok-3-mini
+
+# Use GitHub Copilot instead of GitHub Models
+gh standup --provider copilot
+
+# Use a specific GitHub Copilot model
+gh standup --provider copilot --model gpt-4.1
 
 # Choose your language (default: English)
 gh standup --language english
